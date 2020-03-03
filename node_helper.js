@@ -11,6 +11,7 @@ const NodeHelper = require('node_helper');
 const Gpio = require('onoff').Gpio;
 const exec = require('child_process').exec;
 const execSync = require('child_process').execSync;
+const fetch = require('node-fetch');
 
 module.exports = NodeHelper.create({
     start: function () {
@@ -143,15 +144,11 @@ module.exports = NodeHelper.create({
                 })
             }
 
-            // Setup for sensor pin
-            this.pir = new Gpio(this.config.sensorPin, 'in', 'both');
+	    function stateChange(value) {
+                // Setup value which represent on and off
+                const valueOn = self.config.sensorState;
+                const valueOff = (self.config.sensorState + 1) % 2;
 
-            // Setup value which represent on and off
-            const valueOn = this.config.sensorState;
-            const valueOff = (this.config.sensorState + 1) % 2;
-
-            // Detected movement
-            this.pir.watch(function (err, value) {
                 if (value == valueOn) {
                     self.sendSocketNotification('USER_PRESENCE', true);
                     if (self.config.powerSaving){
@@ -164,12 +161,30 @@ module.exports = NodeHelper.create({
                     if (!self.config.powerSaving){
                         return;
                     }
-
                     self.deactivateMonitorTimeout = setTimeout(function() {
                         self.deactivateMonitor();
                     }, self.config.powerSavingDelay * 1000);
                 }
-            });
+	    }
+
+	    if(!this.config.bridgeIp){
+                // Setup for sensor pin
+                this.pir = new Gpio(this.config.sensorPin, 'in', 'both');
+
+
+                // Detected movement
+                this.pir.watch(function (err, value) {
+			stateChange(value);
+                });
+	    } else {
+		setInterval(()=> {
+	    		const url = 'http://' + self.config.bridgeIp + '/api/' + self.config.user + '/sensors/' + self.config.sensorPin;
+			fetch(url)
+				.then(res => res.json())
+				.then(data => stateChange(data.state.presence))
+		    		.catch(console.log)
+	    	}, 1000);
+	    }
 
             this.started = true;
 
